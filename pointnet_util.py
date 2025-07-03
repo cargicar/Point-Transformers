@@ -144,6 +144,7 @@ def sample_and_group_all(xyz, points):
     Return:
         new_xyz: sampled points position data, [B, 1, 3]
         new_points: sampled points data, [B, 1, N, 3+D]
+        D= features out from transformer, i.e 32
     """
     device = xyz.device
     B, N, C = xyz.shape
@@ -159,10 +160,15 @@ def sample_and_group_all(xyz, points):
 class PointNetSetAbstraction(nn.Module):
     def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all, knn=False):
         super(PointNetSetAbstraction, self).__init__()
+        # npoint = n//(4**(i=1)): if n=1024: npoint:256, 64, 16,...
         self.npoint = npoint
         self.radius = radius
+        #nsample = k
         self.nsample = nsample
         self.knn = knn
+        # channels : [channel//2+3, channel, channel]
+        # in_channel = channels[0]
+        # mlp: channels[1:]=[channel,]
         self.mlp_convs = nn.ModuleList()
         self.mlp_bns = nn.ModuleList()
         last_channel = in_channel
@@ -180,19 +186,24 @@ class PointNetSetAbstraction(nn.Module):
         Return:
             new_xyz: sampled points position data, [B, S, C]
             new_points_concat: sample points feature data, [B, S, D']
+            D= features out from transformer, i.e 32
         """
         if self.group_all:
             new_xyz, new_points = sample_and_group_all(xyz, points)
         else:
             new_xyz, new_points = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points, knn=self.knn)
-        # new_xyz: sampled points position data, [B, npoint, C]
-        # new_points: sampled points data, [B, npoint, nsample, C+D]
-        new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]
+        # sample_and_group, pick new less number of points using Farthest Point Sampling 
+        # new_xyz: sampled points position data, [B, npoint, C], bxnx(dim=3), n here is n_new < n
+        # new_points: sampled points data, [B, npoint, nsample, C+D], bxnxkx(C+D=3+32=in_channel)
+        new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]= [16,35,16,1024//4**(i+1)]
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points =  F.relu(bn(conv(new_points)))
-
+            # conv(in_channel=35=npoint, out_channel= 32x2= 64)
+            new_points =  F.relu(bn(conv(new_points))) # after conv new_points: bx(channel_out=64)xkx(n_point=1024//4**(i+1))
+        # torch.max(new_points, 2) pick max neighbor out to k (=16): bx(channel_out=64)xn_point
+        # transpose returns channel_out to the dim space (where 3 is originally): bxn_pointx(dim=channels_out)
         new_points = torch.max(new_points, 2)[0].transpose(1, 2)
+        #new_xyz: bxn_pointx(dim=3), new_points: bxn_pointx(dim=channel_out)
         return new_xyz, new_points
 
 

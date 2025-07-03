@@ -49,6 +49,7 @@ class TransitionUp(nn.Module):
 class Backbone(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+        #cfg: {'model': {'nneighbor': 16, 'nblocks': 4, 'transformer_dim': 512, 'name': 'Hengshuang'}, 'batch_size': 16, 'epoch': 100, 'learning_rate': 0.001, 'gpu': 0, 'num_point': 1024, 'optimizer': 'Adam', 'weight_decay': 0.0001, 'normal': True, 'num_class': 40, 'input_dim': 6}
         npoints, nblocks, nneighbor, n_c, d_points = cfg.num_point, cfg.model.nblocks, cfg.model.nneighbor, cfg.num_class, cfg.input_dim
         self.fc1 = nn.Sequential(
             nn.Linear(d_points, 32),
@@ -65,7 +66,10 @@ class Backbone(nn.Module):
         self.nblocks = nblocks
     
     def forward(self, x):
+        #x:bxnx6 -> xyz;bxn3
         xyz = x[..., :3]
+        # self.transformer(bxnx3, features) -> bxnxfeatures
+        #points = bxnx(features=6*linear(6,32))=bxnxfeatures
         points = self.transformer1(xyz, self.fc1(x))[0]
 
         xyz_and_feats = [(xyz, points)]
